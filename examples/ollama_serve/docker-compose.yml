@@ -1,0 +1,484 @@
+#version: "3.8"
+# To Do: 
+# delete the extra deepseek in command base
+# add and test the direct connections to each container. !*!*!*! DOUBLE CHECK EVERY CONTAINER NAME I MADE CHANGES !*!*!*!
+# Grab the VRAM footprint of each model
+# See about Nemotron Ultra
+# #### Don't forget that each additional model need to switch to 'depends on:base_command'
+
+services:
+  # ========================
+  # OPENWEBUI (Chat/Agent UI)
+  # ========================
+  web_commander:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: command-web # rename commando-web
+    ports:
+      - 5151:8080
+    environment:
+      - OLLAMA_BASE_URL=http://commander-base:11434
+      - CUSTOM_THEME=dark-matrix
+    volumes:
+      - /rhome/nathanielc/llm-stack/webui-themes:/app/webui/themes/custom
+      - /rhome/nathanielc/llm-stack/webui-data:/app/backend/data
+    networks:
+      - llm-network # Use consistent network name
+    restart: unless-stopped
+  # ========================
+  # <Multi-model Image Builder>
+  # This service builds a base image that can be used for all models
+  # It allows you to set a default model or leave it empty for flexibility
+  # ========================
+
+# docker exec -it commander-base /bin/bash
+  # ollama ps
+  # NAME                  ID              SIZE     PROCESSOR    UNTIL   
+  # deepseek-r1:1.5b      e0979632db5a    3.3 GB    100% GPU     Forever  
+  base_command:
+    container_name: commander-base
+    build:
+      context: /rhome/nathanielc/ai8_command_test # Set the context to where your Dockerfile and script are
+      dockerfile: dockerfile # Specify the Dockerfile name if it's not "Dockerfile"
+      args:
+        BUILD_MODEL: deepseek-r1:1.5b # Creates the BUILD_MODEL argument. You can put a default here or leave empty
+    image: base_command:latest # Give your built image a name and tag
+    environment:
+      - BUILD_MODEL=deepseek-r1:1.5b # Default model to build
+      - OLLAMA_SCHED_SPREAD=1
+      - OLLAMA_NUM_PARALLEL=8
+      - OLLAMA_GPU_LAYER_COUNT=999
+      - OLLAMA_KEEP_ALIVE=-1
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - llm-network # Use consistent network name
+    volumes:
+      - base_models:/root/.ollama:rw
+      - /rhome/nathanielc/ollama_data:/data:rw
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://commander-base:11434/
+      interval: 600s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    ports:
+      - 11501:11434
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities:
+                - gpu
+              device_ids:
+                - "7"
+    restart: unless-stopped
+
+# ========================
+# COMMANDER MODELS
+# ========================
+# docker exec -it commander_qwen3_235b /bin/bash
+  # ollama ps
+  # NAME                    ID              SIZE      PROCESSOR    UNTIL   
+  # qwen3:235b-a22b-q8_0    37e8cf5bfc74    335 GB    100% GPU     Forever 
+  commander_qwen3_235b:
+    depends_on:
+      - base_command
+    image: base_command:latest
+    container_name: commander_qwen3_235b
+    environment:
+      - BUILD_MODEL=qwen3:235b-a22b-q8_0 # Pass the variable as a build argument
+      - OLLAMA_SCHED_SPREAD=1
+      - OLLAMA_NUM_PARALLEL=8
+      - OLLAMA_GPU_LAYER_COUNT=999
+      - OLLAMA_KEEP_ALIVE=-1
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - llm-network # Use consistent network name
+    volumes:
+      - qwen3_235b_models:/root/.ollama:rw
+      - /rhome/nathanielc/ollama_data:/data:rw
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://commander_qwen3_235b:11434/
+      interval: 600s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    ports:
+      - 11502:11434
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities:
+                - gpu
+              device_ids:
+                - "0"
+                - "1"
+                - "2"
+                - "3"
+    restart: unless-stopped
+
+# docker exec -it commander-qwen3_32b /bin/bash
+  # ollama ps
+  # NAME              ID              SIZE      PROCESSOR    UNTIL   
+  # qwen3:32b-fp16    00dc0cb60a08    124 GB    100% GPU     Forever  
+  qwen3-32b-fp16:
+    depends_on:
+      - base_command
+    image: base_command:latest
+    container_name: commander-qwen3-32b
+    environment:
+      - BUILD_MODEL=qwen3:32b-fp16
+      - OLLAMA_SCHED_SPREAD=1
+      - OLLAMA_NUM_PARALLEL=8
+      - OLLAMA_GPU_LAYER_COUNT=999
+      - OLLAMA_KEEP_ALIVE=-1
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - llm-network # Use consistent network name
+    volumes:
+      - qwen3_32b_models:/root/.ollama:rw
+      - /rhome/nathanielc/ollama_data:/data:rw
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://commander-qwen3-32b:11434/
+      interval: 600s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    ports:
+      - 11503:11434
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities:
+                - gpu
+              device_ids:
+                - "4"
+                - "5"
+                - "6"
+                - "7"
+    restart: unless-stopped
+
+# docker exec -it commander-deep-qwen3 /bin/bash
+  # ollama ps
+  # NAME                              ID              SIZE     PROCESSOR    UNTIL   
+  # deepseek-r1:8b-0528-qwen3-fp16    a5f168330005    36 GB    100% GPU     Forever 
+  deepseek-qwen3-8b:
+    depends_on:
+      - base_command
+    image: base_command:latest
+    container_name: commander-deep-qwen3
+    environment:
+      - BUILD_MODEL=deepseek-r1:8b-0528-qwen3-fp16
+      - OLLAMA_SCHED_SPREAD=1
+      - OLLAMA_NUM_PARALLEL=8
+      - OLLAMA_GPU_LAYER_COUNT=999
+      - OLLAMA_KEEP_ALIVE=-1
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - llm-network # Use consistent network name
+    volumes:
+      - deep_qwen_models:/root/.ollama:rw
+      - /rhome/nathanielc/ollama_data:/data:rw
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://commander-deep-qwen3:11434/
+      interval: 600s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    ports:
+      - 11504:11434
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities:
+                - gpu
+              device_ids:
+                - "4"
+                - "5"
+                - "6"
+                - "7"
+    restart: unless-stopped
+
+# docker exec -it commander_scout /bin/bash
+  # ollama ps
+  # NAME                                  ID              SIZE      PROCESSOR    UNTIL   
+  # llama4:17b-scout-16e-instruct-q8_0    244249e6cd64    144 GB    100% GPU     Forever 
+  commander_llama4_scout:
+    depends_on:
+      - base_command
+    image: base_command:latest
+    container_name: commander_scout
+    environment:
+      - BUILD_MODEL=llama4:17b-scout-16e-instruct-q8_0 # Pass the variable as a build argument
+      - OLLAMA_SCHED_SPREAD=1
+      - OLLAMA_NUM_PARALLEL=8
+      - OLLAMA_GPU_LAYER_COUNT=999
+      - OLLAMA_KEEP_ALIVE=-1
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - llm-network # Use consistent network name
+    volumes:
+      - llama4_models:/root/.ollama:rw
+      - /rhome/nathanielc/ollama_data:/data:rw
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://commander_scout:11434/
+      interval: 600s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    ports:
+      - 11505:11434
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities:
+                - gpu
+              device_ids:
+                - "4"
+                - "5"
+                - "6"
+                - "7"
+    restart: unless-stopped
+
+# ========================
+# COMMANDO MODELS
+# ========================
+# docker exec -it commando-mistral3-1 /bin/bash
+  # ollama ps
+  # NAME                                       ID              SIZE     PROCESSOR    UNTIL   
+  # mistral-small3.1:24b-instruct-2503-fp16    5b05d65a969a    82 GB    100% GPU     Forever
+  mistral_small3_1:
+    depends_on:
+      - base_command
+    image: base_command:latest
+    container_name: commando-mistral3
+    environment:
+      - BUILD_MODEL=mistral-small3.1:24b-instruct-2503-fp16
+      - OLLAMA_SCHED_SPREAD=1
+      - OLLAMA_NUM_PARALLEL=8
+      - OLLAMA_GPU_LAYER_COUNT=999
+      - OLLAMA_KEEP_ALIVE=-1
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - llm-network # Use consistent network name
+    volumes:
+      - mistral_models:/root/.ollama:rw
+      - /rhome/nathanielc/ollama_data:/data:rw
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://commando-mistral3:11434/
+      interval: 600s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    ports:
+      - 11506:11434
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities:
+                - gpu
+              device_ids:
+                - "0"
+                - "1"
+                - "2"
+                - "3"
+    restart: unless-stopped
+
+# docker exec -it commando-qwen25vl /bin/bash
+  # ollama ps
+  # NAME                  ID              SIZE      PROCESSOR    UNTIL   
+  # qwen2.5vl:72b-q8_0    7ab696d4a6e8    153 GB    100% GPU     Forever  
+  qwen2.5vl_72b:
+    depends_on:
+      - base_command
+    image: base_command:latest
+    container_name: commando-qwen25vl
+    environment:
+      - BUILD_MODEL=qwen2.5vl:72b-q8_0
+      - OLLAMA_SCHED_SPREAD=1
+      - OLLAMA_NUM_PARALLEL=8
+      - OLLAMA_GPU_LAYER_COUNT=999
+      - OLLAMA_KEEP_ALIVE=-1
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - llm-network # Use consistent network name
+    volumes:
+      - qwen25vl_models:/root/.ollama:rw
+      - /rhome/nathanielc/ollama_data:/data:rw
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://commando-qwen25vl:11434/
+      interval: 600s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    ports:
+      - 11507:11434
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities:
+                - gpu
+              device_ids:
+                - "4"
+                - "5"
+                - "6"
+                - "7"
+    restart: unless-stopped
+
+# docker exec -it phi4-commando /bin/bash
+  # ollama ps
+  # NAME                            ID              SIZE     PROCESSOR    UNTIL   
+  # phi4-reasoning:14b-plus-fp16    561e2e2df29e    58 GB    100% GPU     Forever 
+  phi4_reasoning_14b_fp16:
+    depends_on:
+      - base_command
+    image: base_command:latest
+    container_name: commando-phi4
+    environment:
+      - BUILD_MODEL=phi4-reasoning:14b-plus-fp16
+      - OLLAMA_SCHED_SPREAD=1
+      - OLLAMA_NUM_PARALLEL=8
+      - OLLAMA_GPU_LAYER_COUNT=999
+      - OLLAMA_KEEP_ALIVE=-1
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - llm-network # Use consistent network name
+    volumes:
+      - phi4_models:/root/.ollama:rw
+      - /rhome/nathanielc/ollama_data:/data:rw
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://commando-phi4:11434/
+      interval: 600s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    ports:
+      - 11508:11434
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities:
+                - gpu
+              device_ids:
+                - "0"
+                - "1"
+                - "2"
+                - "3"
+    restart: unless-stopped
+
+# docker exec -it commando-gemma3 /bin/bash
+  # ollama ps
+  # NAME                  ID              SIZE     PROCESSOR    UNTIL   
+  # gemma3:27b-it-fp16    b7d58e2e179e    77 GB    100% GPU     Forever 
+  gemma3_27b:
+    depends_on:
+      - base_command
+    image: base_command:latest
+    container_name: commando-gemma3
+    environment:
+      - BUILD_MODEL=gemma3:27b-it-fp16
+      - OLLAMA_SCHED_SPREAD=1
+      - OLLAMA_NUM_PARALLEL=8
+      - OLLAMA_GPU_LAYER_COUNT=999
+      - OLLAMA_KEEP_ALIVE=-1
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - llm-network # Use consistent network name
+    volumes:
+      - gemma3_models:/root/.ollama:rw
+      - /rhome/nathanielc/ollama_data:/data:rw
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - http://commando-gemma3:11434/
+      interval: 600s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    ports:
+      - 11509:11434
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities:
+                - gpu
+              device_ids:
+                - "0"
+                - "1"
+                - "2"
+                - "3"
+    restart: unless-stopped
+
+#=================
+# Volumes
+#=================
+volumes:
+  base_models:
+  llama4_models:
+  qwen3_235b_models:
+  phi4_models:
+  qwen3_32b_models:
+  deep_qwen_models:
+  mistral_models:
+  qwen25vl_models:
+  gemma3_models:
+  ollama_data:
+  webui_themes:
+  webui_data:
+
+#=================
+# Networks
+#=================
+networks:
+  llm-network:
+    driver: bridge

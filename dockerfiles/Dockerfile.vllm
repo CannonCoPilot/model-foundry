@@ -1,0 +1,66 @@
+# Dockerfile to build a vLLM server image patched for custom HF model code.
+# This version builds vLLM from a specific source fork required for Qwen3-Omni.
+FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
+
+LABEL maintainer="CannonCoPilot"
+LABEL description="vLLM inference server for AI8 (custom build for Qwen3-Omni from source)"
+
+# Install system dependencies
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    wget \
+    curl \
+    ca-certificates \
+    unzip \
+    python3.10 \
+    python3-pip \
+    python3.10-venv \
+    python3.10-dev \
+    libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create a venv
+RUN python3.10 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Upgrade pip
+RUN pip install --upgrade pip setuptools wheel
+
+# Clone the specific vLLM fork for Qwen3-Omni
+WORKDIR /app
+RUN git clone -b qwen3_omni https://github.com/wangxiongts/vllm.git .
+
+# Install vLLM build dependencies
+RUN pip install -r requirements/build.txt && \
+    pip install -r requirements/cuda.txt
+
+# Install vLLM from source with parallel jobs
+# This is a heavy compilation step.
+RUN MAX_JOBS=32 pip install -e . -v --no-build-isolation
+
+# Install other necessary packages
+# We install transformers from git main to get the latest features.
+RUN pip install --no-cache-dir --upgrade \
+    "git+https://github.com/huggingface/transformers.git" \
+    "accelerate" \
+    "sentencepiece" \
+    "uvicorn[standard]"
+
+# Optional: try to install flash-attn.
+RUN pip install --no-cache-dir flash-attn --no-build-isolation || true
+
+# Copy the entrypoint script
+COPY scripts/start_vllm.sh /usr/local/bin/start_vllm.sh
+RUN chmod +x /usr/local/bin/start_vllm.sh
+
+# Expose port
+EXPOSE 8000
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:8000/health || exit 1
+
+ENTRYPOINT ["/usr/local/bin/start_vllm.sh"]
+CMD ["--help"]

@@ -1,0 +1,65 @@
+# Multi-Model Embedding Service
+# Supports both Ollama and HuggingFace embedding models
+# Base Path: /mnt/ai8_arch
+# Author: CannonCoPilot
+# Date: 2025-01-11
+
+FROM python:3.11-slim
+
+# Metadata
+LABEL maintainer="CannonCoPilot"
+LABEL description="Multi-model embedding service for AI8 architecture"
+LABEL version="1.0.0"
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    build-essential \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Ollama (pinned version for reproducibility)
+RUN curl -fsSL https://github.com/ollama/ollama/releases/download/v0.1.30/ollama-linux-amd64 \
+    -o /usr/local/bin/ollama && \
+    chmod +x /usr/local/bin/ollama
+
+# Install CUDA-enabled PyTorch
+# CRITICAL: Must match CUDA version on host (12.1)
+RUN pip install --no-cache-dir \
+    torch==2.2.0 \
+    torchvision==0.17.0 \
+    --index-url https://download.pytorch.org/whl/cu121
+
+# Install Python dependencies
+RUN pip install --no-cache-dir \
+    fastapi==0.110.0 \
+    uvicorn[standard]==0.27.0 \
+    transformers==4.40.0 \
+    sentence-transformers==2.5.1 \
+    accelerate==0.27.0 \
+    huggingface_hub==0.21.0 \
+    pydantic==2.6.0 \
+    requests==2.31.0 \
+    "numpy<2.0" \
+    einops
+
+# Verify GPU support
+# This check is disabled because the Docker build process does not have access to GPUs.
+# GPU availability is configured for runtime in the docker-compose.yaml file.
+# RUN python -c "import torch; assert torch.cuda.is_available(), 'CUDA not available!'"
+
+WORKDIR /app
+
+# Copy application code
+COPY scripts/embedding_service.py/. /app/
+
+# Expose ports (Ollama + FastAPI)
+EXPOSE 11434 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=60s \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Default command (will be overridden)
+CMD ["bash"]

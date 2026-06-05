@@ -1,0 +1,55 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'ai8-llm-stack'
+    environment: 'production'
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # NVIDIA GPU metrics
+  - job_name: 'nvidia-gpu'
+    static_configs:
+      - targets: ['nvidia_gpu_exporter:9835']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'ai8-server'
+
+  # LiteLLM API Gateway
+  - job_name: 'litellm'
+    static_configs:
+      - targets: ['litellm:4000']
+    metrics_path: '/metrics'
+
+  # Embedding Service
+  - job_name: 'embeddings'
+    static_configs:
+      - targets: ['embeddings-service:8000']
+    metrics_path: '/metrics'
+
+  # vLLM Services
+  - job_name: 'vllm-primary'
+    static_configs:
+      - targets: ['primary-qwen3-vl:8000']
+    metrics_path: '/metrics'
+
+  # PostgreSQL
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+
+  # Qdrant
+  - job_name: 'qdrant'
+    static_configs:
+      - targets: ['qdrant:6333']
+    metrics_path: '/metrics'
+
+  # Redis
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']

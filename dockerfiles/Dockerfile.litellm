@@ -1,0 +1,39 @@
+FROM ghcr.io/berriai/litellm:main-v1.38.4
+
+# Switch to root user to install packages
+USER root
+
+# Install libatomic1 and npm.
+# libatomic1 is a required dependency for the version of Node.js used by Prisma.
+# --no-install-recommends is used to keep the image size down.
+RUN apt-get update && apt-get install -y --no-install-recommends curl libatomic1 npm git && rm -rf /var/lib/apt/lists/*
+
+# Upgrade litellm to the latest version and install dependencies
+RUN pip install --upgrade "litellm[proxy]==1.38.4" psycopg2-binary
+
+# Install health check dependencies
+RUN pip install fastapi uvicorn
+
+# Copy health check script
+COPY scripts/healthz.py /app/healthz.py
+
+# Copy the startup script and make it executable
+COPY scripts/start-litellm.sh /app/start-litellm.sh
+RUN chmod +x /app/start-litellm.sh
+
+# Create a home directory for the appuser and set ownership for home and cache
+ENV HOME=/home/appuser
+RUN mkdir -p $HOME/.cache && chown -R 1001:1001 $HOME /app
+
+# Set working directory and generate the Prisma client
+WORKDIR /app
+RUN npx prisma generate
+
+# Fix permissions for the generated prisma client
+RUN chown -R 1001:1001 /usr/local/lib/python3.11/site-packages/prisma && chmod -R 777 /usr/local/lib/python3.11/site-packages/prisma
+
+# Switch back to the default non-root user
+USER 1001
+
+# Set the entrypoint to the startup script
+ENTRYPOINT ["/app/start-litellm.sh"]

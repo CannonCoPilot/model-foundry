@@ -1,0 +1,156 @@
+{
+  "dashboard": {
+    "title": "AI8 GPU Monitoring",
+    "tags": ["gpu", "nvidia", "llm"],
+    "timezone": "browser",
+    "schemaVersion": 30,
+    "version": 1,
+    "refresh": "10s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "GPU Utilization (%)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "nvidia_gpu_duty_cycle",
+            "legendFormat": "GPU {{gpu}} - {{uuid}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "percent", "min": 0, "max": 100},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 2,
+        "title": "GPU Memory Usage (%)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "nvidia_gpu_memory_used_bytes / nvidia_gpu_memory_total_bytes * 100",
+            "legendFormat": "GPU {{gpu}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "percent", "min": 0, "max": 100},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 3,
+        "title": "GPU Temperature (°C)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "nvidia_gpu_temperature_celsius",
+            "legendFormat": "GPU {{gpu}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "celsius", "min": 0, "max": 100},
+          {"format": "short"}
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {"params": [85], "type": "gt"},
+              "operator": {"type": "and"},
+              "query": {"params": ["A", "5m", "now"]},
+              "reducer": {"params": [], "type": "avg"},
+              "type": "query"
+            }
+          ],
+          "message": "GPU temperature above 85°C",
+          "name": "High GPU Temperature"
+        }
+      },
+      {
+        "id": 4,
+        "title": "GPU Power Usage (W)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "expr": "nvidia_gpu_power_usage_milliwatts / 1000",
+            "legendFormat": "GPU {{gpu}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "watt", "min": 0},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 5,
+        "title": "VRAM Used (GB)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "targets": [
+          {
+            "expr": "nvidia_gpu_memory_used_bytes / 1024 / 1024 / 1024",
+            "legendFormat": "GPU {{gpu}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "decgbytes", "min": 0},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 6,
+        "title": "GPU Fan Speed (%)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "targets": [
+          {
+            "expr": "nvidia_gpu_fan_speed_percent",
+            "legendFormat": "GPU {{gpu}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "percent", "min": 0, "max": 100},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 7,
+        "title": "GPU Status Summary",
+        "type": "table",
+        "gridPos": {"h": 6, "w": 24, "x": 0, "y": 24},
+        "targets": [
+          {
+            "expr": "nvidia_gpu_info",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {},
+              "indexByName": {},
+              "renameByName": {
+                "gpu": "GPU #",
+                "name": "GPU Name",
+                "uuid": "UUID"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+```

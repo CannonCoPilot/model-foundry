@@ -1,0 +1,24 @@
+# Dockerfile for the primary_gpt_oss service
+# Base Path: /mnt/ai8_arch/dockerfiles
+# Author: Roo
+# Date: 2025-10-23
+
+# Use the official Ollama image as the base
+FROM ollama/ollama:latest
+
+# Install curl and other useful networking tools
+# RUN is used to execute commands during the image build process
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    iproute2 \
+    dnsutils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the custom preload script into the container
+COPY ../scripts/ollama_preload.sh /preload.sh
+
+# Make the script executable
+RUN chmod +x /preload.sh
+
+# The CMD is now defined in the docker-compose.yaml, 
+# which will call our /preload.sh script.
