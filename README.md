@@ -1,90 +1,86 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker Compose"/>
-  <img src="https://img.shields.io/badge/NVIDIA-CUDA_12.1-76B900?style=for-the-badge&logo=nvidia&logoColor=white" alt="CUDA 12.1"/>
   <img src="https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11"/>
-  <img src="https://img.shields.io/badge/Prometheus-Grafana-E6522C?style=for-the-badge&logo=prometheus&logoColor=white" alt="Prometheus"/>
-  <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI"/>
   <img src="https://img.shields.io/badge/LiteLLM-Gateway-FF6F00?style=for-the-badge" alt="LiteLLM"/>
+  <img src="https://img.shields.io/badge/vLLM-Inference-4B0082?style=for-the-badge" alt="vLLM"/>
+  <img src="https://img.shields.io/badge/Prometheus-E6522C?style=for-the-badge&logo=prometheus&logoColor=white" alt="Prometheus"/>
+  <img src="https://img.shields.io/badge/Grafana-F46800?style=for-the-badge&logo=grafana&logoColor=white" alt="Grafana"/>
   <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="MIT License"/>
 </p>
 
 # Model Foundry
 
-**A production-ready containerized AI infrastructure stack -- multi-model orchestration, monitoring, and deployment automation for open-source LLMs.**
+**Containerized infrastructure for running open-source LLMs at production quality -- multi-model orchestration, GPU resource management, RAG pipelines, and full observability.**
 
 ---
 
-## What Makes This Interesting
+## Production Infrastructure for Open-Source AI
 
-This is not a wrapper around `ollama run`. Model Foundry is the infrastructure layer that sits between bare metal GPUs and production workloads -- the part most teams hand-wave past when they say "we'll just deploy the model."
+Getting a single model to respond to a prompt takes an afternoon. Keeping a fleet of heterogeneous models running reliably -- with proper resource isolation, automatic failover, embedding pipelines, and monitoring -- is an infrastructure problem that most teams underestimate.
 
-- **Tiered model scheduling with cold-start management.** Primary models stay persistent in VRAM with `keep_alive: -1`. Secondary models load on-demand and auto-evict after 600s idle. The system handles the messy reality that you cannot keep everything loaded at once, even on high-end hardware.
+Model Foundry is the layer between bare-metal GPUs and production workloads. It solves three problems that appear the moment you move past single-model deployments:
 
-- **Unified API gateway over heterogeneous inference backends.** Ollama and vLLM serve fundamentally different APIs. LiteLLM normalizes them behind a single OpenAI-compatible endpoint with automatic fallback chains -- if the primary 120B model times out, the request silently routes to the secondary.
+**GPU memory is a finite, shared resource.** Primary models stay resident in VRAM with persistent allocation. Secondary models load on-demand and auto-evict after 600 seconds of idle time. The system enforces strict GPU pinning at the container level -- even-numbered GPUs for primary inference and embeddings, odd-numbered for secondary and experimental workloads.
 
-- **Custom embedding service with LRU model management.** Nine embedding models across two backends (HuggingFace SentenceTransformers + Ollama), with GPU memory managed via an LRU eviction policy. Not a static deployment -- the service dynamically loads and unloads models based on demand.
+**Heterogeneous backends need a unified API.** Ollama, vLLM, and HuggingFace TGI each serve different API formats. LiteLLM normalizes them behind a single OpenAI-compatible endpoint with automatic fallback chains -- if the primary model times out, the request silently routes to an alternative.
 
-- **Complete RAG orchestration pipeline.** Document upload, chunking, embedding, vector storage (Qdrant + pgvector), retrieval, and LLM generation -- all wired together as a single deployable service, not a notebook.
-
-- **GPU allocation as policy, not afterthought.** Strict GPU pinning separates primary inference workloads from experimental playground traffic. The architecture enforces resource isolation at the container level.
+**Embeddings are not a static deployment.** The embedding service manages nine models across two backends (SentenceTransformers and Ollama) with LRU eviction and GPU memory cleanup. Models load and unload dynamically based on demand rather than sitting permanently in VRAM.
 
 ---
 
 ## Architecture
 
 ```
-                         Clients / Applications
-                                  |
-                    +-------------+-------------+
-                    |                           |
-             OpenWebUI :5151              n8n :5678
-                    |                           |
-                    +-------------+-------------+
-                                  |
-                   +--------------+--------------+
-                   |    LiteLLM Gateway :4000    |
-                   |  Routing / Auth / Fallback  |
-                   +-+----------+----------+-----+
-                     |          |          |
-          +----------+    +----+----+    ++-----------+
-          |               |         |     |           |
-   +------+------+  +----+----+ +--+--+  |  +--------+--------+
-   | Primary LLMs|  |Secondary| | vLLM|  |  |  Embedding Svc  |
-   | (Ollama)    |  | (Ollama)| |     |  |  |  (FastAPI)      |
-   | GPT-OSS     |  | DeepSk  | |Qwen3|  |  |  9 models       |
-   | 120B        |  | Llava   | |Omni |  |  |  HF + Ollama    |
-   +------+------+  +----+----+ +--+--+  |  +--------+--------+
-          |               |        |      |           |
-   +------+---------------+--------+------+-----------+------+
-   |                   GPU Resource Pool                     |
-   |   Even GPUs: Primary + Embeddings (strict pinning)      |
-   |   Odd GPUs:  Secondary + Playground (flexible pool)     |
-   +--+-------------+-------------+-------------+-----------+
-      |             |             |             |
-  +---+---+   +----+----+   +----+----+   +----+----+
-  |Qdrant |   |pgvector |   |MongoDB  |   | Redis   |
-  |:6333  |   |:5433    |   |:27017   |   | :6379   |
-  +-------+   +---------+   +---------+   +---------+
+                       Clients / Applications
+                                |
+                  +-------------+-------------+
+                  |                           |
+           OpenWebUI :5151              n8n :5678
+                  |                           |
+                  +-------------+-------------+
+                                |
+                 +--------------+--------------+
+                 |    LiteLLM Gateway :4000    |
+                 |  Routing / Auth / Fallback  |
+                 +--+--------+--------+-------+
+                    |        |        |
+         +----------+  +----+----+  ++----------+
+         |              |         |  |           |
+  +------+------+  +---+----+ +--+-+  +---------+--------+
+  | Primary LLMs|  |  vLLM  | |Sec.|  |  Embedding Svc   |
+  | (Ollama/TGI)|  | Qwen3  | |Mdls|  |  9 models, LRU   |
+  | Persistent  |  | Omni   | |    |  |  HF + Ollama     |
+  +------+------+  +---+----+ +--+-+  +---------+--------+
+         |             |         |              |
+  +------+-------------+---------+--------------+------+
+  |                  GPU Resource Pool                  |
+  |  Even GPUs: Primary + Embeddings (strict pinning)   |
+  |  Odd GPUs:  Secondary + Playground (flexible pool)  |
+  +--+-----------+-----------+-----------+----------+--+
+     |           |           |           |          |
+ +---+---+ +----+----+ +----+----+ +----+----+ +---+---+
+ |Qdrant | |pgvector | |MongoDB  | | Redis   | |Postgres|
+ |:6333  | |:5433    | |:27017   | | :6379   | |:5432   |
+ +-------+ +---------+ +---------+ +---------+ +-------+
 
-   Monitoring: Prometheus :9090 --> Grafana :3000
-               GPU Exporter :9835
+  Monitoring: Prometheus :9090 --> Grafana :3000
+              GPU Exporter :9835
 ```
 
 ---
 
-## Key Features
+## Key Capabilities
 
 | Capability | Implementation |
 |---|---|
 | **Multi-model routing** | LiteLLM gateway with model group aliases (`vision`, `text`, `embedding`), automatic retries, and configurable fallback chains |
 | **Tiered GPU scheduling** | Primary models persistent in VRAM; secondary models lazy-loaded with 600s idle eviction; strict GPU pinning via `NVIDIA_VISIBLE_DEVICES` |
-| **Embedding service** | FastAPI service managing 9 models (5 HuggingFace + 4 Ollama) with LRU eviction, GPU memory cleanup via `torch.cuda.empty_cache()`, and OpenAI-compatible API |
-| **RAG pipeline** | End-to-end orchestrator: document upload, text chunking (configurable size/overlap), embedding generation, Qdrant vector storage, retrieval, and LLM-augmented generation |
+| **Embedding service** | FastAPI service managing 9 models (5 HuggingFace + 4 Ollama) with LRU eviction and `torch.cuda.empty_cache()` memory management |
+| **RAG pipeline** | End-to-end orchestrator: document upload, configurable text chunking, embedding, Qdrant vector storage, retrieval, and LLM-augmented generation |
 | **Dual vector stores** | Qdrant (HNSW indexing, payload filtering) + pgvector (ACID compliance, SQL joins with relational data) |
-| **Observability** | Prometheus scraping 8 targets at 15s intervals, Grafana dashboards for GPU utilization/temperature/VRAM, API latency, and model throughput |
-| **Phased deployment** | 4-phase rollout (Foundation, Data Layer, Model Services, User Interfaces) with per-phase health checks and automated test suites |
-| **MCP server** | Model Context Protocol server for integration with agentic coding tools (Roo Code, Cline, Aider) |
-| **Playground sandbox** | Isolated container with Ollama + vLLM + Jupyter for experimentation, pinned to its own GPU |
+| **Observability** | Prometheus scraping 8 targets at 15s intervals; Grafana dashboards for GPU utilization, VRAM, API latency, and model throughput |
+| **Phased deployment** | 4-phase rollout with per-phase health checks, error handling with automatic teardown, and automated validation |
+| **MCP integration** | Model Context Protocol server for integration with AI coding tools |
 
 ---
 
@@ -92,70 +88,118 @@ This is not a wrapper around `ollama run`. Model Foundry is the infrastructure l
 
 | Layer | Technologies |
 |---|---|
-| **Inference** | Ollama, vLLM (custom fork for Qwen3-Omni), HuggingFace TGI |
+| **Inference** | Ollama, vLLM, HuggingFace TGI |
 | **API Gateway** | LiteLLM Proxy (OpenAI-compatible routing) |
-| **Embeddings** | SentenceTransformers, Ollama embeddings, FastAPI |
-| **Vector Storage** | Qdrant, pgvector (PostgreSQL extension) |
-| **Data Storage** | PostgreSQL 15, MongoDB 7.0, Redis 7 |
+| **Embeddings** | SentenceTransformers, Ollama, FastAPI |
+| **Vector Storage** | Qdrant, pgvector (PostgreSQL) |
+| **Data** | PostgreSQL 15, MongoDB 7.0, Redis 7 |
 | **Monitoring** | Prometheus 2.48, Grafana 10.2, NVIDIA GPU Exporter |
-| **Orchestration** | Docker Compose, custom shell/Python automation |
+| **Orchestration** | Docker Compose, 7 custom Dockerfiles |
 | **Frameworks** | FastAPI, LangChain, httpx, PyTorch |
-| **Workflow** | n8n, OpenWebUI |
 
 ---
 
-## Project Metrics
+## Usage
+
+All models are accessible through a single OpenAI-compatible endpoint:
+
+```bash
+curl -X POST http://localhost:4000/v1/chat/completions \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-oss-120b",
+    "messages": [{"role": "user", "content": "Explain GPU memory management"}]
+  }'
+```
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:4000/v1", api_key="your-key")
+response = client.chat.completions.create(
+    model="gpt-oss-120b",
+    messages=[{"role": "user", "content": "Explain GPU memory management"}]
+)
+```
+
+> [!TIP]
+> Model group aliases (`vision`, `text`, `embedding`) route to the best available backend automatically, including fallback if the primary is unavailable.
+
+<details>
+<summary><strong>Getting Started</strong></summary>
+
+### Prerequisites
+
+- Docker Engine 24.0+ with Compose v2.20+
+- NVIDIA Container Toolkit
+- CUDA 12.1+ drivers
+- 8x NVIDIA GPUs (H100/A100 or similar, 640GB+ total VRAM)
+- 128GB+ system RAM
+
+### Deployment
+
+```bash
+git clone https://github.com/nathanielcannon/model-foundry.git
+cd model-foundry
+
+# Configure environment
+cp .env.template .env
+# Edit .env: set HuggingFace token, database passwords, LiteLLM key
+
+# Set up directory structure
+bash deploy/setup_directories.sh
+
+# Deploy in phases (each phase validates before proceeding)
+bash deploy/deploy.sh phase1    # Monitoring, database, API gateway
+bash deploy/deploy.sh phase2    # Qdrant, pgvector, MongoDB, Redis
+bash deploy/deploy.sh phase3    # LLMs + embeddings
+bash deploy/deploy.sh phase4    # OpenWebUI, n8n, Playground
+
+# Validate full deployment
+python3 deploy/test_deployment.py
+```
+
+</details>
+
+<details>
+<summary><strong>Project Structure</strong></summary>
+
+```
+model-foundry/
+  config/                  # LiteLLM routing configuration
+  deploy/                  # Docker Compose, deploy scripts, validation
+  dockerfiles/             # 7 custom images (embeddings, litellm, mcp,
+                           #   playground, primary_gpt_oss, rag, vllm)
+  docs/                    # Architecture, deployment, API reference,
+                           #   troubleshooting, roadmap
+  examples/                # API usage (bash, Python, LangChain, RAG)
+  monitoring/              # Prometheus scrape config
+  scripts/                 # 23 management, test, and service scripts
+```
 
 | Metric | Count |
 |---|---|
 | Docker services defined | 18 |
 | Custom Dockerfiles | 7 |
 | Embedding models supported | 9 |
-| Automation scripts | 21 |
-| Test scripts | 9 |
-| Documentation pages | 13 |
 | Prometheus scrape targets | 8 |
-| Exposed service ports | 19 |
-| Total project files | 64 |
+| Automation and test scripts | 23 |
+| Documentation pages | 13 |
+
+</details>
 
 ---
 
-## Getting Started
+## Documentation
 
-**Prerequisites:** Docker Engine 24.0+, Docker Compose v2.20+, NVIDIA Container Toolkit, CUDA 12.1+ drivers.
-
-```bash
-# Clone the repository
-git clone https://github.com/your-username/model-foundry.git
-cd model-foundry
-
-# Configure environment
-cp .env.template .env
-# Edit .env with your HuggingFace token and secure passwords
-
-# Set up directory structure
-bash deploy/setup_directories.sh
-
-# Deploy in phases
-bash deploy/deploy.sh phase1    # Foundation: monitoring, database, API gateway
-bash deploy/deploy.sh phase2    # Data layer: Qdrant, pgvector, MongoDB, Redis
-bash deploy/deploy.sh phase3    # Model services: LLMs + embeddings
-bash deploy/deploy.sh phase4    # User interfaces: OpenWebUI, n8n, Playground
-
-# Validate deployment
-python3 deploy/test_deployment.py
-```
-
-All models are accessible through a single endpoint:
-
-```bash
-curl -X POST http://localhost:4000/v1/chat/completions \
-  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model": "gpt-oss-120b", "messages": [{"role": "user", "content": "Hello"}]}'
-```
-
-Full deployment guide: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | API reference: [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md) | Architecture deep-dive: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+| Document | Description |
+|---|---|
+| [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) | System design, GPU allocation strategy, data flow diagrams, scaling approach |
+| [`DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Hardware requirements, phased deployment procedure, post-deploy validation |
+| [`API_REFERENCE.md`](docs/API_REFERENCE.md) | Endpoint catalog, authentication, code examples in bash/Python/LangChain |
+| [`TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Common failure modes and diagnostic procedures |
+| [`ROADMAP.md`](docs/ROADMAP.md) | Planned capabilities: TLS, multi-node, fine-tuning pipelines |
 
 ---
 
@@ -165,4 +209,4 @@ MIT License. See [LICENSE](LICENSE) for details.
 
 ---
 
-<p align="center"><i>Model Foundry -- because the hard part of AI infrastructure is not choosing a model, it is keeping twelve of them running reliably at the same time.</i></p>
+<p align="center"><i>Model Foundry -- the infrastructure layer between bare-metal GPUs and production AI workloads.</i></p>
